@@ -112,7 +112,7 @@ jobs:
         with:
           node-version: 18
       - name: Install Python setuptools
-        run: python3 -m pip install --user setuptools
+        run: python3 -m pip install --user --break-system-packages setuptools
       - run: npm install
       - name: Read version
         run: |
@@ -135,7 +135,7 @@ jobs:
         with:
           node-version: 18
       - name: Install Python setuptools
-        run: python3 -m pip install --user setuptools
+        run: python3 -m pip install --user --break-system-packages setuptools
       - run: npm install
       - name: Read version
         run: |
