@@ -111,7 +111,7 @@ jobs:
           retention-days: 30
 
   build-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -125,7 +125,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - run: npm run make
+      - run: npm run make -- --arch=x64
       - name: Rename DMG
         run: mv "./out/make/MusicFree-${{ env.VERSION }}-x64.dmg" "./out/make/MusicFree-${{ env.VERSION }}-darwin-x64.dmg"
       - uses: actions/upload-artifact@v4
