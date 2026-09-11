@@ -22,14 +22,12 @@ jobs:
           retention-days: 30
 
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
       - run: npm install
       - name: Read version
         run: |
@@ -61,14 +59,12 @@ jobs:
           retention-days: 30
 
   build-windows-legacy:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
       - run: npm install
       - name: Read version
         run: |
@@ -116,7 +112,7 @@ jobs:
         with:
           node-version: 18
       - name: Install Python setuptools
-        run: pip3 install --user setuptools
+        run: python3 -m pip install --user setuptools
       - run: npm install
       - name: Read version
         run: |
@@ -139,7 +135,7 @@ jobs:
         with:
           node-version: 18
       - name: Install Python setuptools
-        run: pip3 install --user setuptools
+        run: python3 -m pip install --user setuptools
       - run: npm install
       - name: Read version
         run: |
@@ -159,12 +155,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: sudo apt-get update && sudo apt-get install -y rpm python3-setuptools
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install Python setuptools
-        run: pip3 install --user setuptools
       - run: npm install
       - name: Read version
         run: |
