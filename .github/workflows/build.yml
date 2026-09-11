@@ -25,18 +25,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install
+      - run: npm install
       - name: Read version
         run: |
           $version = node -p "require('./package.json').version"
           echo "VERSION=$version" >> $env:GITHUB_ENV
-      - run: pnpm run package
+      - run: npm run package
       - uses: maotoumao/inno-setup-action-cli@main
         with:
           filepath: ./release/build-windows.iss
@@ -65,13 +62,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install
+      - run: npm install
       - name: Read version
         run: |
           $version = node -p "require('./package.json').version"
@@ -84,8 +78,8 @@ jobs:
             Copy-Item $_.FullName $target -Force
           }
       - name: Install Electron 22
-        run: pnpm add electron@22 --save-dev
-      - run: pnpm run package
+        run: npm install electron@22 --save-dev
+      - run: npm run package
       - uses: maotoumao/inno-setup-action-cli@main
         with:
           filepath: ./release/build-windows.iss
@@ -114,18 +108,15 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install
+      - run: npm install
       - name: Read version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - run: pnpm run make
+      - run: npm run make
       - name: Rename DMG
         run: mv "./out/make/MusicFree-${{ env.VERSION }}-x64.dmg" "./out/make/MusicFree-${{ env.VERSION }}-darwin-x64.dmg"
       - uses: actions/upload-artifact@v4
@@ -138,18 +129,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install
+      - run: npm install
       - name: Read version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - run: pnpm run make -- --arch=arm64
+      - run: npm run make -- --arch=arm64
       - name: Rename DMG
         run: mv "./out/make/MusicFree-${{ env.VERSION }}-arm64.dmg" "./out/make/MusicFree-${{ env.VERSION }}-darwin-arm64.dmg"
       - uses: actions/upload-artifact@v4
@@ -164,18 +152,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y rpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install
+      - run: npm install
       - name: Read version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - run: pnpm run make
+      - run: npm run make
       - name: Rename DEB
         run: |
           DEB_FILE=$(find ./out/make/deb/x64/ -name "*.deb" | head -1)
