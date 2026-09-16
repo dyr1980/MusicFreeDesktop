@@ -104,41 +104,6 @@ export default function PluginManagerView() {
                     >
                         {t("plugin_management_page.install_plugin_from_network")}
                     </div>
-                    {/* <div
-            role="button"
-            data-type="normalButton"
-            onClick={() => {
-              showModal("SimpleInputWithState", {
-                title: "从网络安装插件",
-                placeholder: "请输入插件源地址(链接以json或js结尾)",
-                okText: "安装",
-                loadingText: "安装中",
-                withLoading: true,
-                async onOk(text) {
-                  if (
-                    text.trim().endsWith(".json") ||
-                    text.trim().endsWith(".js")
-                  ) {
-                    return ipcRendererInvoke("install-plugin-remote", text);
-                  } else {
-                    throw new Error("插件链接需要以json或者js结尾");
-                  }
-                },
-                onPromiseResolved() {
-                  toast.success("安装成功~");
-                  hideModal();
-                },
-                onPromiseRejected(e) {
-                  toast.warn(`安装失败: ${e.message ?? "无效插件"}`);
-                },
-                hints: [
-                  "插件需要满足 MusicFree 特定的插件协议，具体可在官方网站中查看",
-                ],
-              });
-            }}
-          >
-            一键更新
-          </div> */}
                 </div>
                 <div className="right-part">
                     <div
@@ -150,6 +115,7 @@ export default function PluginManagerView() {
                     >
                         {t("plugin_management_page.subscription_setting")}
                     </div>
+                    {/* 修改后的更新订阅按钮 */}
                     <div
                         role="button"
                         data-type="normalButton"
@@ -157,10 +123,21 @@ export default function PluginManagerView() {
                             const subscription = getUserPreference("subscription");
 
                             if (subscription?.length) {
-                                for (let i = 0; i < subscription.length; ++i) {
-                                    await PluginManager.installPluginFromRemote(subscription[i].srcUrl);
+                                // 弹出提示，防止用户误触，并告知用户变量会丢失
+                                const confirm = window.confirm(
+                                    "⚠️ 提示：同步订阅将强制拉取最新的在线插件，并清理在线接口中已删除的插件。\n如果本地插件有配置过用户变量，可能会丢失，确定继续吗？"
+                                );
+                                if (!confirm) return;
+
+                                // 收集所有订阅源的地址
+                                const urls = subscription.map((item) => item.srcUrl);
+                                try {
+                                    // 调用新加的同步方法
+                                    await PluginManager.syncSubscription(urls);
+                                    toast.success(t("plugin_management_page.update_successfully"));
+                                } catch (e) {
+                                    toast.error(`更新失败: ${e.message}`);
                                 }
-                                toast.success(t("plugin_management_page.update_successfully"));
                             } else {
                                 toast.warn(t("plugin_management_page.no_subscription"));
                             }
