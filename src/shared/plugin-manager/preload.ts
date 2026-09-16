@@ -52,6 +52,11 @@ async function installPluginFromLocal(url: string) {
     return await ipcRenderer.invoke("@shared/plugin-manager/install-plugin-local", url);
 }
 
+// 新增：处理全量同步订阅的逻辑
+async function syncSubscription(urls: string[]) {
+    return await ipcRenderer.invoke("@shared/plugin-manager/sync-subscription", urls);
+}
+
 const mod = {
     onPluginUpdated,
     callPluginMethod,
@@ -60,6 +65,8 @@ const mod = {
     updateAllPlugins,
     installPluginFromLocal,
     installPluginFromRemote,
+    // 新增：将 syncSubscription 暴露给 window
+    syncSubscription,
 };
 
 contextBridge.exposeInMainWorld("@shared/plugin-manager", mod);
