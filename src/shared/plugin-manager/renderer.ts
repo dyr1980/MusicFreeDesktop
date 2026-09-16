@@ -24,6 +24,8 @@ interface IMod {
     updateAllPlugins: () => Promise<void>;
     installPluginFromRemote: (url: string) => Promise<void>,
     installPluginFromLocal: (rawCode: string) => Promise<void>,
+    // 新增：暴露同步订阅方法
+    syncSubscription: (urls: string[]) => Promise<void>,
 }
 
 const mod = window["@shared/plugin-manager" as any] as unknown as IMod;
@@ -124,6 +126,8 @@ const PluginManager = {
     uninstallPlugin: mod.uninstallPlugin,
     installPluginFromRemote: mod.installPluginFromRemote,
     installPluginFromLocal: mod.installPluginFromLocal,
+    // 新增：将主进程暴露的方法挂载到 PluginManager 对象上
+    syncSubscription: mod.syncSubscription,
 };
 
 export default PluginManager;
