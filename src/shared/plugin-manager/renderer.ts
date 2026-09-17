@@ -2,15 +2,12 @@ import Store from "@/common/store";
 import AppConfig from "@shared/app-config/renderer";
 import useAppConfig from "@/hooks/useAppConfig";
 import { useMemo } from "react";
-
 interface IPluginDelegateLike {
     platform?: string;
     hash?: string;
 }
-
 interface IMod {
     onPluginUpdated: (callback: (plugins: IPlugin.IPluginDelegate[]) => void) => void,
-
     callPluginMethod<
         T extends keyof IPlugin.IPluginInstanceMethods,
     >(
@@ -18,7 +15,6 @@ interface IMod {
         method: T,
         ...args: Parameters<IPlugin.IPluginInstanceMethods[T]>
     ): ReturnType<IPlugin.IPluginInstanceMethods[T]>,
-
     reloadPlugins: () => Promise<void>;
     uninstallPlugin: (hash: string) => Promise<void>;
     updateAllPlugins: () => Promise<void>;
@@ -26,17 +22,15 @@ interface IMod {
     installPluginFromLocal: (rawCode: string) => Promise<void>,
     // 新增：暴露同步订阅方法
     syncSubscription: (urls: string[]) => Promise<void>,
+    // ==========新增两个IPC接口定义==========
+    retryFailedSubscription: (urls: string[]) => Promise<any>,
+    finishSyncProcess: () => Promise<any>,
 }
-
 const mod = window["@shared/plugin-manager" as any] as unknown as IMod;
-
-
 const delegatePluginsStore = new Store<IPlugin.IPluginDelegate[]>([]);
-
 mod.onPluginUpdated((plugins) => {
     delegatePluginsStore.setValue(plugins);
 });
-
 function getSupportedPlugin(
     featureMethod: keyof IPlugin.IPluginInstanceMethods,
 ) {
@@ -44,7 +38,6 @@ function getSupportedPlugin(
         .getValue()
         .filter((_) => _.supportedMethod.includes(featureMethod));
 }
-
 function getSortedSupportedPlugin(
     featureMethod: keyof IPlugin.IPluginInstanceMethods,
 ) {
@@ -60,7 +53,6 @@ function getSortedSupportedPlugin(
                 : 1;
         });
 }
-
 function getSearchablePlugins(
     supportedSearchType?: IMedia.SupportMediaType,
 ) {
@@ -70,8 +62,6 @@ function getSearchablePlugins(
             : true,
     );
 }
-
-
 function getSortedSearchablePlugins(
     supportedSearchType?: IMedia.SupportMediaType,
 ) {
@@ -81,23 +71,18 @@ function getSortedSearchablePlugins(
             : true,
     );
 }
-
 function getPluginByHash(hash: string) {
     return delegatePluginsStore.getValue().find((item) => item.hash === hash);
 }
-
 function getPluginByPlatform(platform: string) {
     return delegatePluginsStore.getValue().find((item) => item.platform === platform);
 }
-
 function isSupportFeatureMethod(platform: string, featureMethod: keyof IPlugin.IPluginInstanceMethods) {
     if (!platform) {
         return false;
     }
     return delegatePluginsStore.getValue().find((item) => item.platform === platform)?.supportedMethod?.includes?.(featureMethod) ?? false;
 }
-
-
 function getPluginPrimaryKey(pluginItem: IPluginDelegateLike) {
     return (
         delegatePluginsStore
@@ -105,12 +90,9 @@ function getPluginPrimaryKey(pluginItem: IPluginDelegateLike) {
             .find((it) => it.platform === pluginItem.platform)?.primaryKey ?? []
     );
 }
-
-
 async function setup() {
     await mod.reloadPlugins();
 }
-
 const PluginManager = {
     setup,
     getSortedSupportedPlugin,
@@ -128,10 +110,11 @@ const PluginManager = {
     installPluginFromLocal: mod.installPluginFromLocal,
     // 新增：将主进程暴露的方法挂载到 PluginManager 对象上
     syncSubscription: mod.syncSubscription,
+    // ==========挂载新增方法==========
+    retryFailedSubscription: mod.retryFailedSubscription,
+    finishSyncProcess: mod.finishSyncProcess,
 };
-
 export default PluginManager;
-
 export function useSupportedPlugin(
     featureMethod: keyof IPlugin.IPluginInstanceMethods,
 ) {
@@ -139,7 +122,6 @@ export function useSupportedPlugin(
         .useValue()
         .filter((_) => _.supportedMethod.includes(featureMethod));
 }
-
 export function useSortedSupportedPlugin(
     featureMethod: keyof IPlugin.IPluginInstanceMethods,
 ) {
@@ -155,11 +137,9 @@ export function useSortedSupportedPlugin(
                 : 1;
         });
 }
-
 export function useSortedPlugins() {
     const plugins = delegatePluginsStore.useValue();
     const meta = useAppConfig("private.pluginMeta") ?? {};
-
     return useMemo(() => {
         return [...plugins].sort((a, b) => {
             return (meta[a.platform]?.order ?? Infinity) -
