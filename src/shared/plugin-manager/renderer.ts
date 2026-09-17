@@ -6,9 +6,11 @@ interface IPluginDelegateLike {
     platform?: string;
     hash?: string;
 }
-interface SyncSubResult {
+interface SyncResult {
     success: boolean;
     msg: string;
+    errors: string[];
+    successUrls: string[];
     failUrls: string[];
 }
 interface IMod {
@@ -25,10 +27,9 @@ interface IMod {
     updateAllPlugins: () => Promise<void>;
     installPluginFromRemote: (url: string) => Promise<void>,
     installPluginFromLocal: (rawCode: string) => Promise<void>,
-    // 新增：暴露同步订阅方法，返回SyncSubResult对象，不再是void
-    syncSubscription: (urls: string[]) => Promise<SyncSubResult>,
-    retryFailedSubscription: (urls: string[]) => Promise<SyncSubResult>,
-    finishSyncProcess: () => Promise<any>,
+    syncSubscription: (urls: string[]) => Promise<SyncResult>,
+    retryFailedSubscription: (urls: string[]) => Promise<SyncResult>,
+    finishSyncProcess: () => Promise<void>,
 }
 const mod = window["@shared/plugin-manager" as any] as unknown as IMod;
 const delegatePluginsStore = new Store<IPlugin.IPluginDelegate[]>([]);
@@ -112,7 +113,6 @@ const PluginManager = {
     uninstallPlugin: mod.uninstallPlugin,
     installPluginFromRemote: mod.installPluginFromRemote,
     installPluginFromLocal: mod.installPluginFromLocal,
-    // 新增：将主进程暴露的方法挂载到 PluginManager 对象上
     syncSubscription: mod.syncSubscription,
     retryFailedSubscription: mod.retryFailedSubscription,
     finishSyncProcess: mod.finishSyncProcess,
