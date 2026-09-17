@@ -21,6 +21,14 @@ const axios = _axios.create({
     }),
 });
 
+type SyncResult = {
+    success: boolean;
+    msg: string;
+    errors: string[];
+    successUrls: string[];
+    failUrls: string[];
+};
+
 interface ICallPluginMethodParams<
     T extends keyof IPlugin.IPluginInstanceMethods,
 > {
@@ -30,17 +38,13 @@ interface ICallPluginMethodParams<
     args: Parameters<IPlugin.IPluginInstanceMethods[T]>;
 }
 
-
 class PluginManager {
     private clonedPlugins: IPlugin.IPluginDelegate[] = [];
-
     private inited = false;
-
     private _plugins: Plugin[] = [];
     public get plugins() {
         return this._plugins;
     }
-
     public set plugins(newPlugins: Plugin[]) {
         this._plugins = newPlugins;
         this.clonedPlugins = newPlugins.map((p) => {
@@ -60,12 +64,10 @@ class PluginManager {
             return JSON.parse(JSON.stringify(sPlugin));
         });
     }
-
     private windowManager: IWindowManager;
-
+    private isSyncingSubscription = false;
     // 插件存储路径
     private _pluginBasePath: string;
-
     private get pluginBasePath() {
         if (this._pluginBasePath) {
             return this._pluginBasePath;
@@ -76,16 +78,13 @@ class PluginManager {
         );
         return this._pluginBasePath;
     }
-
     public async setup(windowManager: IWindowManager) {
         this.windowManager = windowManager;
         // 1. setup events
         ipcMain.handle("@shared/plugin-manager/call-plugin-method", (_evt, data) => {
             return this.callPluginMethod(data);
         });
-
         ipcMain.handle("@shared/plugin-manager/get-all-plugins", () => this.clonedPlugins);
-
         ipcMain.handle("@shared/plugin-manager/load-all-plugins", async () => {
             if (!this.inited) {
                 await this.loadAllPlugins();
@@ -94,27 +93,27 @@ class PluginManager {
             }
             return this.clonedPlugins;
         });
-
         ipcMain.handle("@shared/plugin-manager/uninstall-plugin", async (_, hash) => {
             await this.uninstallPlugin(hash);
             this.syncPlugins();
         });
-
         ipcMain.on("@shared/plugin-manager/update-all-plugins", this.updateAllPlugins);
-
         ipcMain.handle("@shared/plugin-manager/install-plugin-remote", async (_, urlLike) => {
             return await this.installPluginFromRemoteUrl(urlLike);
         });
-
         ipcMain.handle("@shared/plugin-manager/install-plugin-local", async (_, urlLike) => {
             return await this.installPluginFromLocalFile(urlLike);
         });
-
-        // 新增：同步订阅接口
+        // 新增IPC
         ipcMain.handle("@shared/plugin-manager/sync-subscription", async (_, urls: string[]) => {
-            await this.syncSubscription(urls);
+            return await this.syncSubscription(urls);
         });
-
+        ipcMain.handle("@shared/plugin-manager/retryFailedSubscription", async (_, urls: string[]) => {
+            return await this.retryFailedSubscription(urls);
+        });
+        ipcMain.handle("@shared/plugin-manager/finishSyncProcess", async () => {
+            return await this.finishSyncProcess();
+        });
         // 2. check if folder exists
         let folderExists = true;
         try {
@@ -131,12 +130,10 @@ class PluginManager {
                 recursive: true,
             }).catch(voidCallback);
         }
-
         // 3. load all plugins
         await this.loadAllPlugins();
         this.inited = true;
     }
-
     // 调用某个插件的方法
     private callPluginMethod({
         hash,
@@ -158,35 +155,31 @@ class PluginManager {
         }
         return plugin.methods[method]?.apply?.({ plugin }, args);
     }
-
     private syncPlugins() {
         const mainWindow = this.windowManager.mainWindow;
         if (mainWindow) {
             mainWindow.webContents.send("@/shared/plugin-manager/sync-plugins", this.clonedPlugins);
         }
     }
-
-
     /********************** 安装插件 *******************/
     // 修改：增加 srcUrl 和 forceUpdate 参数
     private async installPluginFromRawCodeImpl(funcCode: string, srcUrl?: string, forceUpdate = false) {
         const plugins = this.plugins;
         const plugin = new Plugin(funcCode, "");
-        
+
         // 记录插件来源，用于后续同步比对
         if (srcUrl) {
             plugin.instance.srcUrl = srcUrl;
         }
-
         const pluginIndex = plugins.findIndex((p) => p.hash === plugin.hash);
-        
+
         // 如果不是强制更新，且已经存在相同 Hash 的插件，则跳过
         if (!forceUpdate && pluginIndex !== -1) {
             return;
         }
-        
+
         const oldVersionPlugin = plugins.find((p) => p.name === plugin.name);
-        
+
         // 如果不是强制更新，且存在旧版本，则进行版本比对
         if (
             !forceUpdate &&
@@ -203,13 +196,12 @@ class PluginManager {
                 throw new Error("已安装更新版本的插件");
             }
         }
-
         if (plugin.hash !== "") {
             const fn = nanoid();
             const _pluginPath = path.resolve(this.pluginBasePath, `${fn}.js`);
             await fs.writeFile(_pluginPath, funcCode, "utf8");
             plugin.path = _pluginPath;
-            
+
             // 删除旧版本文件
             if (oldVersionPlugin) {
                 try {
@@ -218,17 +210,16 @@ class PluginManager {
                     // pass
                 }
             }
-            
+
             // 组装新插件列表
             let newPlugins = plugins.filter((_) => _.hash !== oldVersionPlugin?.hash);
             newPlugins.push(plugin);
-            
+
             this.plugins = newPlugins;
             return;
         }
         throw new Error("插件无法解析!");
     }
-
     // 修改：传递 srcUrl 和 forceUpdate
     private async installPluginFromUrlImpl(urlLike: string, forceUpdate = false) {
         const funcCode = (await axios.get(urlLike)).data;
@@ -236,7 +227,6 @@ class PluginManager {
             await this.installPluginFromRawCodeImpl(funcCode, urlLike, forceUpdate);
         }
     }
-
     // 加载所有插件
     public async loadAllPlugins() {
         const rawPluginNames = await fs.readdir(this.pluginBasePath);
@@ -247,7 +237,7 @@ class PluginManager {
                 const pluginPath = path.resolve(this.pluginBasePath, rawPluginNames[i]);
                 const fileStat = await fs.stat(pluginPath);
                 if (fileStat.isFile() && path.extname(pluginPath) === ".js") {
-                    const funcCode = await fs.readFile(pluginPath, "utf-8");
+                    const funcCode = await fs.readFile(pluginPath, "utf8");
                     const plugin = new Plugin(funcCode, pluginPath);
                     if (pluginHashSet.has(plugin.hash)) {
                         continue;
@@ -264,7 +254,6 @@ class PluginManager {
         this.plugins = plugins;
         this.syncPlugins();
     }
-
     // 从本地文件安装插件
     public async installPluginFromLocalFile(urlLike: string) {
         try {
@@ -274,7 +263,6 @@ class PluginManager {
                 await this.installPluginFromRawCodeImpl(rawCode);
             } else if (url.endsWith(".json")) {
                 const jsonFile = JSON.parse(await fs.readFile(url, "utf8"));
-
                 for (const cfg of jsonFile?.plugins ?? []) {
                     await this.installPluginFromUrlImpl(addRandomHash(cfg.url));
                 }
@@ -283,7 +271,6 @@ class PluginManager {
             this.syncPlugins();
         }
     }
-
     // 从远程url安装插件
     public async installPluginFromRemoteUrl(urlLike: string, forceUpdate = false) {
         try {
@@ -292,7 +279,6 @@ class PluginManager {
                 await this.installPluginFromUrlImpl(addRandomHash(url), forceUpdate);
             } else if (url.endsWith(".json")) {
                 const jsonFile = (await axios.get(addRandomHash(url))).data;
-
                 for (const cfg of jsonFile?.plugins ?? []) {
                     await this.installPluginFromUrlImpl(addRandomHash(cfg.url), forceUpdate);
                 }
@@ -302,58 +288,150 @@ class PluginManager {
         }
     }
 
-    // 新增：同步订阅源（全量覆盖更新 + 智能清理）
-    public async syncSubscription(subscriptionUrls: string[]) {
+    // 第一轮完整同步订阅源，单个失败不中断，仅第一轮执行插件清理
+    public async syncSubscription(subscriptionUrls: string[]): Promise<SyncResult> {
+        if (this.isSyncingSubscription) {
+            return {
+                success: false,
+                msg: "订阅同步任务正在运行，请等待完成后再次点击",
+                errors: [],
+                successUrls: [],
+                failUrls: [],
+            };
+        }
+        this.isSyncingSubscription = true;
+        const result: SyncResult = {
+            success: true,
+            msg: "订阅同步第一轮完成",
+            errors: [],
+            successUrls: [],
+            failUrls: [],
+        };
+        const expectedPluginUrls = new Set<string>();
+
         try {
-            const expectedPluginUrls = new Set<string>(); // 记录在线接口里实际需要的所有插件地址
-            
-            // 1. 解析所有在线接口，收集预期需要的插件下载地址
+            // 第一层：解析全部订阅源，单个失败不中断
             for (const subUrl of subscriptionUrls) {
                 const url = subUrl.trim();
-                if (url.endsWith(".json")) {
-                    try {
+                if (!url) continue;
+                try {
+                    if (url.endsWith(".json")) {
                         const jsonFile = (await axios.get(addRandomHash(url))).data;
                         for (const cfg of jsonFile?.plugins ?? []) {
                             if (cfg.url) {
                                 expectedPluginUrls.add(cfg.url);
                             }
                         }
-                    } catch (e) {
-                        logger.logError(`解析订阅源失败: ${url}`, e);
-                        throw new Error(`无法获取在线订阅内容，请检查网络或订阅源是否失效。`);
+                    } else if (url.endsWith(".js")) {
+                        expectedPluginUrls.add(url);
                     }
-                } else if (url.endsWith(".js")) {
-                    expectedPluginUrls.add(url);
+                    result.successUrls.push(url);
+                } catch (e) {
+                    const errMsg = `解析订阅源【${url}】失败：${(e as Error).message}`;
+                    logger.logError(errMsg, e);
+                    result.errors.push(errMsg);
+                    result.failUrls.push(url);
                 }
             }
 
-            // 【安全加固】如果在线接口解析出来一个插件都没有，说明接口异常，拒绝执行删除操作
+            // 保护机制：全部解析完没有任何插件链接，不删除插件，直接退出
             if (expectedPluginUrls.size === 0) {
-                throw new Error("在线订阅源未返回任何有效插件，为防止误删本地插件，已终止操作。");
+                throw new Error("所有订阅源解析完毕，但未获取任何有效插件地址，为保护本地插件，终止同步");
             }
 
-            // 2. 删除本地存在，但在线接口里已经删除了的插件
+            // 删除在线订阅已经不存在的旧插件（仅第一轮执行）
             const pluginsToRemove = this.plugins.filter((p) => {
-                const localSrcUrl = p.instance?.srcUrl; 
+                const localSrcUrl = p.instance?.srcUrl;
                 // 如果本地插件没有 srcUrl（例如手动安装的），则不删除它（给予保护）
-                if (!localSrcUrl) return false; 
+                if (!localSrcUrl) return false;
                 return !expectedPluginUrls.has(localSrcUrl);
             });
-
             for (const p of pluginsToRemove) {
-                logger.logInfo(`在线接口已删除插件，正在卸载: ${p.name}`);
+                logger.logInfo(`在线订阅已移除，卸载插件: ${p.name}`);
                 await this.uninstallPlugin(p.hash);
             }
 
-            // 3. 重新下载并强制覆盖所有在线接口中的插件
+            // 第二层：逐个安装订阅源插件
             for (const subUrl of subscriptionUrls) {
                 const url = subUrl.trim();
-                // 强制更新传入 true
-                await this.installPluginFromRemoteUrl(url, true);
+                if (!url) continue;
+                // 如果解析阶段已经失败，跳过安装
+                if (result.failUrls.includes(url)) continue;
+                try {
+                    await this.installPluginFromRemoteUrl(url, true);
+                } catch (e) {
+                    const errMsg = `更新订阅源【${url}】插件失败：${(e as Error).message}`;
+                    logger.logError(errMsg, e);
+                    result.errors.push(errMsg);
+                    result.successUrls = result.successUrls.filter(item => item !== url);
+                    result.failUrls.push(url);
+                }
             }
+
+            if (result.failUrls.length > 0) {
+                result.msg = `订阅同步第一轮完成，共${subscriptionUrls.length}个订阅源，成功${result.successUrls.length}个，失败${result.failUrls.length}个`;
+            } else {
+                result.msg = `订阅同步第一轮完成，共${subscriptionUrls.length}个订阅源，全部成功`;
+            }
+        } catch (globalErr) {
+            result.success = false;
+            result.msg = `订阅同步终止：${(globalErr as Error).message}`;
+            logger.logError("订阅同步全局异常", globalErr);
         } finally {
-            this.syncPlugins(); // 完成后同步给前端刷新界面
+            this.syncPlugins();
+            // ❗不释放锁，锁交给前端调用 finishSyncProcess 释放
         }
+        return result;
+    }
+
+    // 重试失败订阅源：只解析+安装，**不执行插件卸载**
+    public async retryFailedSubscription(subscriptionUrls: string[]): Promise<SyncResult> {
+        const result: SyncResult = {
+            success: true,
+            msg: "重试完成",
+            errors: [],
+            successUrls: [],
+            failUrls: [],
+        };
+
+        try {
+            for (const subUrl of subscriptionUrls) {
+                const url = subUrl.trim();
+                if (!url) continue;
+                try {
+                    if (url.endsWith(".json")) {
+                        const jsonFile = (await axios.get(addRandomHash(url))).data;
+                        // 重试阶段不再维护 expectedPluginUrls、不删插件
+                    } else if (url.endsWith(".js")) {
+                        // js源无需解析插件列表
+                    }
+                    await this.installPluginFromRemoteUrl(url, true);
+                    result.successUrls.push(url);
+                } catch (e) {
+                    const errMsg = `重试订阅源【${url}】失败：${(e as Error).message}`;
+                    logger.logError(errMsg, e);
+                    result.errors.push(errMsg);
+                    result.failUrls.push(url);
+                }
+            }
+            if (result.failUrls.length > 0) {
+                result.msg = `本轮重试完成，共${subscriptionUrls.length}个订阅源，成功${result.successUrls.length}个，失败${result.failUrls.length}个`;
+            } else {
+                result.msg = `本轮重试完成，共${subscriptionUrls.length}个订阅源，全部成功`;
+            }
+        } catch (globalErr) {
+            result.success = false;
+            result.msg = `重试异常：${(globalErr as Error).message}`;
+            logger.logError("重试订阅源全局异常", globalErr);
+        } finally {
+            this.syncPlugins();
+            // ❗不释放锁
+        }
+        return result;
+    }
+
+    public async finishSyncProcess() {
+        this.isSyncingSubscription = false;
     }
 
     // 更新所有插件
@@ -364,7 +442,6 @@ class PluginManager {
             ),
         );
     }
-
     // 卸载插件
     public async uninstallPlugin(hash: string) {
         const targetIndex = this.plugins.findIndex((_) => _.hash === hash);
@@ -378,6 +455,5 @@ class PluginManager {
         }
     }
 }
-
 
 export default new PluginManager();
