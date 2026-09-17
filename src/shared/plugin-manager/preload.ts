@@ -1,21 +1,15 @@
 import { contextBridge, ipcRenderer } from "electron";
-
 ipcRenderer.on("@/shared/plugin-manager/sync-plugins", (_evt, newPlugins) => {
     pluginUpdateCallback?.(newPlugins);
 });
-
 let pluginUpdateCallback: (plugins: IPlugin.IPluginDelegate[]) => void;
-
 function onPluginUpdated(callback: (plugins: IPlugin.IPluginDelegate[]) => void) {
     pluginUpdateCallback = callback;
 }
-
-
 interface IPluginDelegateLike {
     platform?: string;
     hash?: string;
 }
-
 async function callPluginMethod<
     T extends keyof IPlugin.IPluginInstanceMethods,
 >(
@@ -30,33 +24,34 @@ async function callPluginMethod<
         args,
     })) as ReturnType<IPlugin.IPluginInstanceMethods[T]>;
 }
-
 async function reloadPlugins() {
     const result = await ipcRenderer.invoke("@shared/plugin-manager/load-all-plugins");
     pluginUpdateCallback?.(result);
 }
-
 async function uninstallPlugin(hash: string) {
     await ipcRenderer.invoke("@shared/plugin-manager/uninstall-plugin", hash);
 }
-
 async function updateAllPlugins() {
     ipcRenderer.emit("@shared/plugin-manager/update-all-plugins");
 }
-
 async function installPluginFromRemote(url: string) {
     return await ipcRenderer.invoke("@shared/plugin-manager/install-plugin-remote", url);
 }
-
 async function installPluginFromLocal(url: string) {
     return await ipcRenderer.invoke("@shared/plugin-manager/install-plugin-local", url);
 }
-
 // 新增：处理全量同步订阅的逻辑
 async function syncSubscription(urls: string[]) {
     return await ipcRenderer.invoke("@shared/plugin-manager/sync-subscription", urls);
 }
-
+// 新增：重试失败订阅源
+async function retryFailedSubscription(urls: string[]) {
+    return await ipcRenderer.invoke("@shared/plugin-manager/retryFailedSubscription", urls);
+}
+// 新增：释放同步锁
+async function finishSyncProcess() {
+    return await ipcRenderer.invoke("@shared/plugin-manager/finishSyncProcess");
+}
 const mod = {
     onPluginUpdated,
     callPluginMethod,
@@ -65,8 +60,8 @@ const mod = {
     updateAllPlugins,
     installPluginFromLocal,
     installPluginFromRemote,
-    // 新增：将 syncSubscription 暴露给 window
     syncSubscription,
+    retryFailedSubscription,
+    finishSyncProcess,
 };
-
 contextBridge.exposeInMainWorld("@shared/plugin-manager", mod);
