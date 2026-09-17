@@ -67,7 +67,6 @@ export default function PluginManagerView() {
                     </div>
                 </>
             )}
-
             <div className="header">
                 {t("plugin_management_page.plugin_management")}
             </div>
@@ -119,7 +118,7 @@ export default function PluginManagerView() {
                                 async onOk(text) {
                                     if (
                                         text.trim().endsWith(".json") ||
-                    text.trim().endsWith(".js")
+                                        text.trim().endsWith(".js")
                                     ) {
                                         return PluginManager.installPluginFromRemote(text);
                                     } else {
@@ -167,7 +166,7 @@ export default function PluginManagerView() {
                     >
                         {t("plugin_management_page.subscription_setting")}
                     </div>
-                    {/* 修改后的更新订阅按钮 */}
+                    {/* 修改后的更新订阅按钮 - 方案A 用户友好提示 */}
                     <div
                         role="button"
                         data-type="normalButton"
@@ -176,35 +175,57 @@ export default function PluginManagerView() {
                             pointerEvents: isUpdating ? "none" : "auto",
                         }}
                         onClick={async () => {
-                            if (isUpdating) return; // 双重保险，防止重复点击
-
+                            if (isUpdating) return;
                             const subscription = getUserPreference("subscription");
-
-                            if (subscription?.length) {
-                                // 弹出提示，防止用户误触，并告知用户变量会丢失
-                                const confirm = window.confirm(
-                                    "⚠️ 提示：同步订阅将强制拉取最新的在线插件，并清理在线接口中已删除的插件。\n如果本地插件有配置过用户变量，可能会丢失，确定继续吗？"
-                                );
-                                if (!confirm) return;
-
-                                // 收集所有订阅源的地址
-                                const urls = subscription.map((item) => item.srcUrl);
-
-                                // 开启全局加载遮罩
-                                setIsUpdating(true);
-
-                                try {
-                                    // 调用新加的同步方法
-                                    await PluginManager.syncSubscription(urls);
-                                    toast.success(t("plugin_management_page.update_successfully"));
-                                } catch (e) {
-                                    toast.error(`更新失败: ${e.message}`);
-                                } finally {
-                                    // 无论成功失败，关闭全局加载遮罩
-                                    setIsUpdating(false);
-                                }
-                            } else {
+                            if (!subscription?.length) {
                                 toast.warn(t("plugin_management_page.no_subscription"));
+                                return;
+                            }
+                            const confirm = window.confirm(
+                                "⚠️ 提示：同步订阅将强制拉取最新的在线插件，并清理在线接口中已删除的插件。\n如果本地插件有配置过用户变量，可能会丢失，确定继续吗？"
+                            );
+                            if (!confirm) return;
+
+                            const urls = subscription.map((item) => item.srcUrl);
+                            setIsUpdating(true);
+                            let retryCount = 0;
+                            const maxRetryCount = 2;
+                            let currentFailUrls: string[] = [];
+
+                            try {
+                                const res = await PluginManager.syncSubscription(urls);
+                                if (!res.success) {
+                                    toast.error(res.msg);
+                                    return;
+                                }
+                                toast.success(res.msg);
+                                currentFailUrls = res.failUrls;
+
+                                while (currentFailUrls.length > 0 && retryCount < maxRetryCount) {
+                                    retryCount++;
+                                    const remain = maxRetryCount - retryCount;
+                                    const failListText = currentFailUrls.join("\n");
+                                    const retryConfirm = window.confirm(
+                                        `有部分订阅源同步失败。\n失败列表：\n${failListText}\n\n点击【确定】重新尝试失败的源（还可重试${remain}次）\n点击【取消】停止本次同步操作`
+                                    );
+                                    if (!retryConfirm) {
+                                        break;
+                                    }
+                                    const retryRes = await PluginManager.retryFailedSubscription(currentFailUrls);
+                                    toast.success(retryRes.msg);
+                                    currentFailUrls = retryRes.failUrls;
+                                }
+
+                                if (currentFailUrls.length > 0) {
+                                    toast.warn(`本次同步最终仍有${currentFailUrls.length}个订阅源失败：${currentFailUrls.join("；")}`);
+                                } else {
+                                    toast.success("✅ 所有订阅源同步成功！");
+                                }
+                            } catch (e) {
+                                toast.error(`更新订阅异常: ${(e as Error).message}`);
+                            } finally {
+                                await PluginManager.finishSyncProcess();
+                                setIsUpdating(false);
                             }
                         }}
                     >
